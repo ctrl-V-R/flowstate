@@ -1,0 +1,25 @@
+[
+    {
+        "id": "1",
+        "status": "online",
+        "lastSync": "11:10:10",
+        "name": "Beeceptor2",
+        "url": "https://flowstateapp.free.beeceptor.com",
+        "customKey": "",
+        "endpointSecret": "",
+        "useLLM": false,
+        "settings": {
+            "timeout": 30000,
+            "retries": 3,
+            "headers": {}
+        },
+        "metadata": {
+            "created_at": "2026-05-03T12:18:42.406883",
+            "version": "1.0"
+        },
+        "timeout": 30000,
+        "retries": 3,
+        "headers": {},
+        "enabledState": true
+    }
+]
