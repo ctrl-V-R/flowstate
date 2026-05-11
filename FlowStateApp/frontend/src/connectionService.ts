@@ -22,7 +22,7 @@ export const getEnrichedDashboard = async (onLog?: LogCallback) => {
     if (response.status === 401) {
       onLog?.({ msg: "Session expired or invalid. Re-authenticating...", type: "error", time: new Date().toLocaleTimeString() });
       // Optional: window.location.href = "/login";
-      return null;
+      return [];
     }
 
     const data = await response.json();
@@ -121,20 +121,6 @@ export const pingAllEndpoints = async (onLog?: LogCallback): Promise<boolean> =>
     });
     return false;
   }
-};
-
-// HELPER: Wraps a fetch with local UI latency calculation
-export const withLatency = async (
-  fetchPromise: Promise<Endpoint[]>
-): Promise<Endpoint[]> => {
-  const start = performance.now();
-  const data = await fetchPromise;
-  const rtt = Math.round(performance.now() - start);
-
-  return data.map(node => ({
-    ...node,
-    latency: node.status === 'online' ? rtt : 0
-  }));
 };
 
 export const getUserProfile = async () => {

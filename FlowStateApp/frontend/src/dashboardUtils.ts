@@ -14,13 +14,15 @@ export const calculateClusterHealth = (endpoints: Endpoint[]) => {
   return { score, status };
 };
 
-export const getNodeTelemetry = (nodeId: string) => {
-  const seed = nodeId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return {
-    cpu: (seed % 30) + 10 + (Math.random() * 5),
-    mem: (seed % 40) + 20,
-    latency: (seed % 15) + 5
-  };
+export const getNodeTelemetry = async (nodeId: string) => {
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/telemetry/${nodeId}`);
+    if (!response.ok) throw new Error('Network response was not ok');
+    return await response.json();
+  } catch (error) {
+    console.error(`Failed to fetch telemetry for ${nodeId}:`, error);
+    return null; // Return null so the UI knows the node is "offline"
+  }
 };
 
 export const calculateAvailability = (endpoints: Endpoint[]) => {

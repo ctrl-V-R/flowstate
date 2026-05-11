@@ -24,7 +24,6 @@ import {
 import { DeleteDialog } from "./DeleteDialog"
 import { toast } from "sonner"
 import { GlobalSyncFAB } from "@/components/ui/GlobalSyncFAB"
-import { withLatency } from "@/connectionService"
 import { ConnectionsView } from "./ConnectionsView"
 import type { Endpoint } from "@/types"
 
@@ -90,10 +89,8 @@ const fetchEndpoints = async () => {
 
     if (!response.ok) throw new Error("Failed to authenticate session");
 
-    // Using your withLatency wrapper to inject RTT data into the dashboard
     const rawData = await response.json();
-    const dataWithLatency = await withLatency(Promise.resolve(rawData));
-    setEndpoints(dataWithLatency);
+    setEndpoints(rawData);
 
   } catch (error) {
     console.error("Registry fetch failed:", error);

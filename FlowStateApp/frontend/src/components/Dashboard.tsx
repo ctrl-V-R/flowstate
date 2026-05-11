@@ -88,7 +88,7 @@ export default function Dashboard({ endpoints, prevMetrics, allLogs, latencyHist
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricItem 
           title="Availability" 
-          value={`${currentAvail.toFixed(1)}%`} 
+          value={`${currentAvail.toFixed(2)}%`} 
           icon={<Globe className="w-4 h-4" />} 
           trend={availTrend.value}
           trendStatus={availStatus}
@@ -148,7 +148,7 @@ export default function Dashboard({ endpoints, prevMetrics, allLogs, latencyHist
         <div className="flex flex-col gap-6 h-full">
           
           {/* Top: The Graph */}
-          <div className="h-[45%]">
+          <div className="h-[55%]">
             <NetworkLoadGraph history={chartData} />
           </div>
 

@@ -13,7 +13,7 @@ import { FSStats } from "./components/FSStats"
 import Support from "./components/Support"
 import LiveTerminal from "./components/LiveTerminal"
 import type { Endpoint, LogEntry } from "./types"
-import { fetchEndpoints, getUserProfile, withLatency } from './connectionService';
+import { fetchEndpoints, getUserProfile, getEnrichedDashboard } from './connectionService';
 import NotificationsPage from "./components/NotificationsPage"
 import Dashboard from "./components/Dashboard"
 import { calculateAvailability, calculateAvgLatency, getNodeTelemetry } from "./dashboardUtils"
@@ -66,29 +66,43 @@ export function AppContent() {
   };
 
   useEffect(() => {
+    const checkSystemPressure = async () => {
+      for (const node of endpoints) {
+        const telemetry = await getNodeTelemetry(node.id);
+        
+        if (telemetry && telemetry.cpu > 85) {
+          addGlobalLog({
+            msg: `CRITICAL_LOAD: High CPU pressure on ${node.name} (${telemetry.cpu.toFixed(1)}%)`,
+            type: 'warn',
+            time: new Date().toLocaleTimeString()
+          });
+        }
+      }
+    };
+
+    // Run the check every 10 seconds
+    const interval = setInterval(checkSystemPressure, 10000);
+    return () => clearInterval(interval);
+  }, [endpoints]); // Re-run if endpoints list changes
+
+  useEffect(() => {
     if (!token) {return;}
     const interval = setInterval(async () => {
-      const data = await withLatency(fetchEndpoints(addGlobalLog));
+      // Use the enriched dashboard data which contains the live monitoring results
+      const data = await getEnrichedDashboard(addGlobalLog);
+      if (!data) return;
+
       const avgLat = calculateAvgLatency(data);
       setLatencyHistory(prev => {
         const updated = [...prev, avgLat];
         return updated.slice(-20); 
       });
-      data.forEach(node => {
-        const oldNode = endpoints.find(e => e.id === node.id);
+      data.forEach((node: Endpoint) => {
+        const oldNode = endpoints.find((e: Endpoint) => e.id === node.id);
         if (oldNode && oldNode.status !== node.status) {
           addGlobalLog({
             msg: `${node.name} status changed from ${oldNode.status} to ${node.status}`,
             type: node.status === 'online' ? 'success' : 'error',
-            time: new Date().toLocaleTimeString()
-          });
-        }
-        // Main Telemetry
-        const telemetry = getNodeTelemetry(node.id);
-        if (telemetry.cpu > 85) {
-          addGlobalLog({
-            msg: `High CPU pressure detected on ${node.name}: ${telemetry.cpu.toFixed(1)}%`,
-            type: 'warn',
             time: new Date().toLocaleTimeString()
           });
         }
@@ -100,7 +114,7 @@ export function AppContent() {
 
       setPrevMetrics({ availability: currentAvail, latency: currentLat });
 
-    }, 30000); // Check every 30 seconds
+    }, 10000); // Check every 10 seconds
 
     return () => clearInterval(interval);
   }, [endpoints]);
@@ -116,7 +130,7 @@ export function AppContent() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const data = await withLatency(fetchEndpoints());
+        const data = await getEnrichedDashboard();
         setEndpoints(data);
       } catch (err) {
         console.error("Initial load failed", err);

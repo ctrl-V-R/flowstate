@@ -1,3 +1,5 @@
+import psutil
+
 import boto3
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
@@ -128,7 +130,7 @@ async def monitor_loop():
         except Exception as e:
             print(f"Background Sync Error: {e}")
         
-        await asyncio.sleep(60)
+        await asyncio.sleep(10)
 
 ''' Backend Health (FSStats) '''
 table = dynamodb.Table('FlowState_Endpoints')
@@ -139,7 +141,7 @@ def get_total_pings_from_db():
     except ClientError as e:
         print(f"Error fetching stats: {e.response['Error']['Message']}")
         return 0
-
+    
 async def aggregate_system_stats():
     while True:
         # Now this won't throw a NameError
@@ -154,6 +156,62 @@ async def aggregate_system_stats():
         await manager.broadcast(stats)
         await asyncio.sleep(30)
 
+async def get_system_metrics():
+    """
+    Gathers real-time system stats to seed the frontend 
+    immediately upon WebSocket connection.
+    """
+    # 1. Get real CPU and RAM usage
+    cpu_usage = psutil.cpu_percent(interval=None)
+    memory = psutil.virtual_memory()
+    
+    # 2. Get your DynamoDB count (using the function we wrote earlier)
+    # If the function is sync, we just call it. 
+    # If it's async, use 'await'.
+    total_pings = get_total_pings_from_db() 
+
+    return {
+        "active_sessions": len(manager.active_connections) if 'manager' in globals() else 0,
+        "total_pings_24h": total_pings,
+        "system_health": "optimal" if cpu_usage < 80 else "strained",
+        "cpu_load": cpu_usage,
+        "memory_usage": memory.percent,
+        "timestamp": time.time()
+    }
+    
+async def get_system_metrics():
+    """
+    Gathers real-time system stats to seed the frontend 
+    immediately upon WebSocket connection.
+    """
+    # 1. Get real CPU and RAM usage
+    cpu_usage = psutil.cpu_percent(interval=None)
+    memory = psutil.virtual_memory()
+    
+    # 2. Get your DynamoDB count (using the function we wrote earlier)
+    # If the function is sync, we just call it. 
+    # If it's async, use 'await'.
+    total_pings = get_total_pings_from_db() 
+
+    return {
+        "active_sessions": len(manager.active_connections) if 'manager' in globals() else 0,
+        "total_pings_24h": total_pings,
+        "system_health": "optimal" if cpu_usage < 80 else "strained",
+        "cpu_load": cpu_usage,
+        "memory_usage": memory.percent,
+        "timestamp": time.time()
+    }
+    
+@app.get("/api/v1/telemetry/{node_id}")
+async def get_single_node_telemetry(node_id: str):
+    # Here you could query a specific DB record or check a specific process
+    return {
+        "id": node_id,
+        "cpu": psutil.Process().cpu_percent(), # Example: stats for this specific process
+        "mem": psutil.virtual_memory().percent,
+        "latency": 5
+    }
+
 async def connect(self, websocket: WebSocket):
     await websocket.accept()
     self.active_connections.append(websocket)
@@ -165,7 +223,7 @@ async def connect(self, websocket: WebSocket):
 class ConnectionManager:
     def __init__(self):
         # Stores active websocket connections
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         # This is the missing attribute!
@@ -288,9 +346,13 @@ async def verify_credentials(data: dict):
             # Refresh TTL for the existing Admin record
             auth_table.update_item(
                 Key={'token': admin_token},
-                ConditionExpression="attribute_exists(token)",
+                # Use #tk instead of 'token' directly
+                ConditionExpression="attribute_exists(#tk)", 
                 UpdateExpression="SET #t = :val",
-                ExpressionAttributeNames={'#t': 'ttl'},
+                ExpressionAttributeNames={
+                    '#t': 'ttl',
+                    '#tk': 'token' # Alias for the reserved keyword
+                },
                 ExpressionAttributeValues={':val': new_ttl}
             )
 
@@ -313,13 +375,6 @@ async def verify_credentials(data: dict):
 @router.get("/dashboard")
 async def get_dashboard(current_user: dict = Depends(verify_token)):
     """Both Viewers and Admins can see this."""
-
-    await manager.broadcast({
-        "active_sessions": len(manager.active_connections), # Simple proxy for activity
-        "total_pings_24h": get_total_pings_from_db(),       # Fetch latest count
-        "system_health": "optimal"
-    })
-
     return {
         "cache": active_cache,
         "user_role": current_user["role"]
