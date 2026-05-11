@@ -13,7 +13,7 @@ import { FSStats } from "./components/FSStats"
 import Support from "./components/Support"
 import LiveTerminal from "./components/LiveTerminal"
 import type { Endpoint, LogEntry } from "./types"
-import { fetchEndpoints, getUserProfile, getEnrichedDashboard } from './connectionService';
+import { getUserProfile, getEnrichedDashboard } from './connectionService';
 import NotificationsPage from "./components/NotificationsPage"
 import Dashboard from "./components/Dashboard"
 import { calculateAvailability, calculateAvgLatency, getNodeTelemetry } from "./dashboardUtils"
