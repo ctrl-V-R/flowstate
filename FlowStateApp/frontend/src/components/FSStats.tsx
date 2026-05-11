@@ -1,9 +1,13 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
-  Activity, Users, Zap, ShieldCheck, 
-  Globe, Server, Cpu, Database, 
-  Terminal, RefreshCw, Layers, 
-  HardDrive, Wifi, Lock, Box
+  Activity, 
+  Users, 
+  Zap,
+  Globe, 
+  Cpu, 
+  Database, 
+  Layers, 
+  Lock
 } from 'lucide-react';
 
 export const FSStats = () => {
@@ -15,7 +19,6 @@ export const FSStats = () => {
     memory_usage: 4.2
   });
   const [logs, setLogs] = useState<string[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/stats';
