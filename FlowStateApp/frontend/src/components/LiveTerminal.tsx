@@ -21,7 +21,7 @@ export default function LiveTerminal({
 }) {
     const [input, setInput] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
-    const [uptime, setUptime] = useState(0); 
+    const [_uptime, setUptime] = useState(0); 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [pendingCommand, setPendingCommand] = useState('');

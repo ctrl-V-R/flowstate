@@ -32,7 +32,7 @@ export function AppContent() {
   const navigate = useNavigate()
   const [endpoints, setEndpoints] = useState<Endpoint[]>([])
   const [allLogs, setAllLogs] = useState<LogEntry[]>([]); 
-  const [hasUnreadAlerts, setHasUnreadAlerts] = useState(false);
+  const [_hasUnreadAlerts, setHasUnreadAlerts] = useState(false);
   const [prevMetrics, setPrevMetrics] = useState({ availability: 0, latency: 0 });
   const [latencyHistory, setLatencyHistory] = useState<Record<string, number[]>>({});
   

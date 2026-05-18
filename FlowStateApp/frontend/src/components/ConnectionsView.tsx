@@ -31,7 +31,7 @@ import type { ConnectionsViewProps } from "@/types"
 export function ConnectionsView({ onSuccess, initialData, fetchEndpoints }: ConnectionsViewProps) {
   {/* STATE MANAGEMENT */}
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
-  const [quota, setQuota] = useState(0) // Logic test: 0 triggers auto-open
+  const [quota, _setQuota] = useState(0) // Logic test: 0 triggers auto-open
   const isEditMode = !!initialData
 
   {/* FORM FIELDS */}

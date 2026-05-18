@@ -4,19 +4,19 @@ import type { CommandState } from './types';
 export const COMMAND_REGISTRY: Record<string, (args: string[], state: CommandState) => void> = {
 
   // REBOOT
-  '/reboot': (args, { setLogs, setUptime, addNotify }) => {
+  '/reboot': (_args, { setLogs, setUptime, addNotify }) => {
     setLogs([]);
     setUptime(0);
     addNotify("SYSTEM_REBOOT", "Orchestrator cycled to zero.", "warn");
   },
 
   // FLUSH
-  '/flush': (args, { setLogs }) => {
+  '/flush': (_args, { setLogs }) => {
     setLogs([]);
   },
 
   // PING
-  '/pingall': async (args, { setEndpoints, log, addNotify }) => {
+  '/pingall': async (_args, { setEndpoints, log, addNotify }) => {
     log("Initiating global cluster ping...", "info");
     
     const success = await pingAllEndpoints();
