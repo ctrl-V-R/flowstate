@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Terminal, Cpu, Shield, Network, ArrowRight, FileText } from 'lucide-react';
+import { Terminal, Cpu, Shield, Network, FileText } from 'lucide-react';
 
 export const Docs: React.FC = () => {
   const [activeSection, setActiveSection] = useState<string>('overview');

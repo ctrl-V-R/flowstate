@@ -1,5 +1,5 @@
 import psutil
-import os
+
 import boto3
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
@@ -11,37 +11,26 @@ import string
 from datetime import datetime
 from fastapi import FastAPI, APIRouter, Header, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from typing import Optional
-import logging
 
 from dotenv import load_dotenv
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-)
-logger = logging.getLogger(__name__)
-
 app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 
-# Get CORS origins from environment
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=["*"], # TODO: In production, replace with your frontend URL
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "PUT", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], # Explicitly allow DELETE
     allow_headers=["*"],
 )
 
 
 # --- [ 1. DYNAMODB CONFIGURATION ] ---
-dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_DEFAULT_REGION', 'ap-south-1'))
-endpoints_table = dynamodb.Table(os.getenv('DYNAMODB_ENDPOINTS_TABLE', 'FlowState_Endpoints'))
-auth_table = dynamodb.Table(os.getenv('DYNAMODB_AUTH_TABLE', 'FlowState_Auth'))
+dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
+endpoints_table = dynamodb.Table('FlowState_Endpoints')
+auth_table = dynamodb.Table('FlowState_Auth')
 
 # --- [ 2. ACTIVE CACHE (In-Memory) ] ---
 active_cache = {
@@ -51,9 +40,8 @@ active_cache = {
 
 # --- [ 3. UTILS & AUTH ] ---
 def get_new_ttl():
-    # Get TTL from environment or default to 24 hours
-    ttl_seconds = int(os.getenv("TOKEN_TTL", "86400"))
-    return int(time.time()) + ttl_seconds
+    # 86400 seconds = 24 hours
+    return int(time.time()) + 86400
 
 def generate_viewer_code():
     """Generates a 6-char alphanumeric code (e.g., XJ92L1)"""
@@ -92,23 +80,12 @@ async def ping_endpoint(client: httpx.AsyncClient, endpoint: dict):
     settings = endpoint.get("settings", {})
     metadata = endpoint.get("metadata", {})
     
-    if not url:
-        print(f"[PING] ERROR: Endpoint {endpoint.get('name', 'unknown')} has no URL")
-        metadata.update({"latency": 0, "statusCode": 0})
-        return {
-            **endpoint,
-            "status": "offline",
-            "lastSync": datetime.now().strftime("%H:%M:%S"),
-            "metadata": metadata
-        }
-    
     if not endpoint.get("enabledState", True):
         return {**endpoint, "status": "paused"}
 
     start = time.perf_counter()
     try:
-        timeout = float(settings.get("timeout", 5000)) / 1000  # Convert Decimal to float
-        logger.debug(f"Pinging {endpoint.get('name', 'unknown')} at {url} (timeout: {timeout}s)")
+        timeout = settings.get("timeout", 5000) / 1000
         response = await client.get(url, timeout=timeout)
         latency = round((time.perf_counter() - start) * 1000, 2)
         
@@ -117,18 +94,14 @@ async def ping_endpoint(client: httpx.AsyncClient, endpoint: dict):
             "latency": latency,
             "statusCode": response.status_code
         })
-        
-        status = "online" if response.status_code < 400 else "degraded"
-        logger.info(f"{endpoint.get('name', 'unknown')}: {status} (latency: {latency}ms, code: {response.status_code})")
 
         return {
             **endpoint,
-            "status": status,
+            "status": "online" if response.status_code < 400 else "degraded",
             "lastSync": datetime.now().strftime("%H:%M:%S"),
             "metadata": metadata
         }
-    except Exception as e:
-        logger.error(f"Error pinging {endpoint.get('name', 'unknown')} at {url}: {type(e).__name__}: {str(e)}")
+    except Exception:
         metadata.update({"latency": 0, "statusCode": 500})
         return {
             **endpoint,
@@ -139,14 +112,12 @@ async def ping_endpoint(client: httpx.AsyncClient, endpoint: dict):
 
 async def monitor_loop():
     """Syncs Bulk DB -> Pings -> Updates Active Cache."""
-    logger.info("Background monitoring loop started")
-    monitor_interval = int(os.getenv("MONITOR_INTERVAL", "10"))
-    
+    print("[MONITOR] Background monitoring loop started")
     while True:
         try:
             res = endpoints_table.scan()
             bulk_endpoints = res.get('Items', [])
-            logger.debug(f"Found {len(bulk_endpoints)} endpoints in DB")
+            print(f"[MONITOR] Found {len(bulk_endpoints)} endpoints in DB")
 
             if bulk_endpoints:
                 async with httpx.AsyncClient() as client:
@@ -158,13 +129,13 @@ async def monitor_loop():
                         "endpoints": results,
                         "last_updated": datetime.now().strftime("%H:%M:%S")
                     }
-                    logger.info(f"Updated cache with {len(results)} endpoints at {active_cache['last_updated']}")
+                    print(f"[MONITOR] Updated cache with {len(results)} endpoints at {active_cache['last_updated']}")
             else:
-                logger.debug("No endpoints to monitor")
+                print("[MONITOR] No endpoints to monitor")
         except Exception as e:
-            logger.error(f"Background Sync Error: {e}")
+            print(f"[MONITOR] Background Sync Error: {e}")
         
-        await asyncio.sleep(monitor_interval)
+        await asyncio.sleep(10)
 
 ''' Backend Health (FSStats) '''
 table = dynamodb.Table('FlowState_Endpoints')
@@ -492,8 +463,7 @@ async def update_connection(
             'headers': data.get('headers', {}),
             'enabledState': data.get('enabledState'),
             'lastSync': datetime.now().strftime("%H:%M:%S"),
-            'status': data.get('status'),
-            'user_id': existing['Item'].get('user_id') or current_user.get('user_id')  # Claim ownership if legacy
+            'status': data.get('status')
         }
 
         endpoints_table.put_item(Item=updated_item)
