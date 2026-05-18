@@ -39,7 +39,7 @@ export interface DashboardProps {
     latency: number;
   };
   allLogs: any[];
-  latencyHistory: any[];
+  latencyHistory: Record<string, number[]>; // Map of endpoint ID to its latency history
 }
 
 // Telemetry Data

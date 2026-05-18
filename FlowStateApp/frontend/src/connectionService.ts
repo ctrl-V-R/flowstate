@@ -11,7 +11,7 @@ const getHeaders = () => {
   };
 };
 
-const BASE_URL = "http://localhost:8000/api/v1";
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
 export const getEnrichedDashboard = async (onLog?: LogCallback) => {
   try {
@@ -21,16 +21,29 @@ export const getEnrichedDashboard = async (onLog?: LogCallback) => {
 
     if (response.status === 401) {
       onLog?.({ msg: "Session expired or invalid. Re-authenticating...", type: "error", time: new Date().toLocaleTimeString() });
-      // Optional: window.location.href = "/login";
+      // Trigger logout
+      localStorage.removeItem("fs_access_token");
+      localStorage.removeItem("fs_session_start");
+      window.location.href = "/";
       return [];
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
     const data = await response.json();
     // Our FastAPI backend returns { "cache": { "endpoints": [...] }, "user_role": "..." }
-    return data.cache.endpoints; 
+    return data.cache?.endpoints || []; 
   } catch (error) {
-    onLog?.({ msg: "Failed to connect to backend engine", type: "error", time: new Date().toLocaleTimeString() });
-    throw error;
+    const errorMsg = error instanceof Error ? error.message : "Unknown error";
+    onLog?.({ 
+      msg: `Failed to connect to backend: ${errorMsg}`, 
+      type: "error", 
+      time: new Date().toLocaleTimeString() 
+    });
+    console.error("Dashboard fetch error:", error);
+    return []; // Return empty array instead of throwing
   }
 };
 

@@ -2,8 +2,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { DashboardProps } from "@/types";
 import { Activity, Globe, Zap, Heart } from "lucide-react";
-import { calculateAvailability, calculateAvgLatency, calculateClusterHealth, formatLatencyHistory, getKernelEvents, getTrend } from "@/dashboardUtils";
-import { useEffect, useMemo, useState } from "react";
+import { calculateAvailability, calculateAvgLatency, calculateClusterHealth, getKernelEvents, getTrend } from "@/dashboardUtils";
+import { useMemo } from "react";
 import { Separator } from "./ui/separator";
 
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
@@ -11,7 +11,6 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { ScrollArea } from "./ui/scroll-area";
 import { calculatePF } from "@/performanceFactor";
 import { NodeStatusCard } from "./ui/NodeStatusCard";
-import { getEnrichedDashboard } from "@/connectionService";
 
 const NetworkLoadGraph = ({ history }: { history: any[] }) => (
   <Card className="bg-[#0a0a0a] border-slate-800 overflow-hidden h-full">
@@ -40,36 +39,85 @@ const NetworkLoadGraph = ({ history }: { history: any[] }) => (
 
 export default function Dashboard({ endpoints, prevMetrics, allLogs, latencyHistory }: DashboardProps) {
     
-    const [data, setData] = useState(null);
-    useEffect(() => {
-      // Real polling every 10 seconds
-      const interval = setInterval(async () => {
-      const result = await getEnrichedDashboard();
-        setData(result);
-      }, 10000);
-      
-      return () => clearInterval(interval);
-    }, []);
-
     const onlineCount = endpoints.filter(e => e.status === 'online').length;
     const totalNodes = endpoints.length;
 
     // Health
-    const health = calculateClusterHealth(endpoints);
+    const health = useMemo(() => calculateClusterHealth(endpoints), [endpoints]);
 
-    // Availabiility
-    const currentAvail = calculateAvailability(endpoints);
-    const currentLat = calculateAvgLatency(endpoints);
+    // Availability
+    const currentAvail = useMemo(() => calculateAvailability(endpoints), [endpoints]);
+    const currentLat = useMemo(() => calculateAvgLatency(endpoints), [endpoints]);
 
-    //Latency
-    const availTrend = getTrend(currentAvail, prevMetrics.availability);
+    //Latency Trends
+    const availTrend = useMemo(() => getTrend(currentAvail, prevMetrics.availability), [currentAvail, prevMetrics.availability]);
     const availStatus = availTrend.isPositive ? 'success' : 'danger'; 
 
-    const latTrend = getTrend(currentLat, prevMetrics.latency);
+    const latTrend = useMemo(() => getTrend(currentLat, prevMetrics.latency), [currentLat, prevMetrics.latency]);
     const latStatus = !latTrend.isPositive ? 'success' : 'warning';
 
-    const chartData = useMemo(() => formatLatencyHistory(latencyHistory || []), [latencyHistory]);
+    // Create aggregate chart data from all endpoints
+    const chartData = useMemo(() => {
+      if (Object.keys(latencyHistory).length === 0) {
+        // Return placeholder data if no history yet
+        return Array.from({ length: 20 }, (_, i) => ({
+          time: `${(19 - i) * -10}s`,
+          val: 0
+        }));
+      }
+      
+      // Calculate average latency across all endpoints over time
+      const maxLength = Math.max(...Object.values(latencyHistory).map(arr => arr.length));
+      const aggregated = [];
+      
+      for (let i = 0; i < maxLength; i++) {
+        const values = Object.values(latencyHistory)
+          .map(arr => arr[i])
+          .filter(val => val !== undefined && val !== null);
+        
+        if (values.length > 0) {
+          const avg = values.reduce((sum, val) => sum + val, 0) / values.length;
+          aggregated.push({
+            time: `${(maxLength - i - 1) * -10}s`,
+            val: Math.round(avg)
+          });
+        }
+      }
+      
+      return aggregated.length > 0 ? aggregated : Array.from({ length: 20 }, (_, i) => ({
+        time: `${(19 - i) * -10}s`,
+        val: 0
+      }));
+    }, [latencyHistory]);
+    
     const kernelLogs = useMemo(() => getKernelEvents(allLogs), [allLogs]);
+  
+  // Show empty state if no endpoints
+  if (totalNodes === 0) {
+    return (
+      <div className="flex flex-col gap-6 p-8 bg-[#020202] text-slate-200 min-h-screen">
+        <header className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tighter text-white">Analytics</h1>
+            <p className="text-slate-500 text-sm font-mono">NODE_ORCHESTRATOR // STATUS: STANDBY</p>
+          </div>
+          <Badge variant="outline" className="font-mono border-slate-500/20 text-slate-500 bg-slate-500/5 px-3 py-1">
+            SYSTEM: IDLE
+          </Badge>
+        </header>
+        
+        <Card className="bg-[#0a0a0a] border-slate-800 p-12">
+          <CardContent className="flex flex-col items-center justify-center text-center space-y-4">
+            <Activity className="w-16 h-16 text-slate-600" />
+            <div>
+              <h2 className="text-xl font-bold text-slate-400">No Endpoints Configured</h2>
+              <p className="text-slate-600 text-sm mt-2">Add your first endpoint to start monitoring</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 p-8 bg-[#020202] text-slate-200 min-h-screen">
@@ -130,8 +178,9 @@ export default function Dashboard({ endpoints, prevMetrics, allLogs, latencyHist
           <CardContent className="p-6">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {endpoints.map((node) => {
-                // We calculate PF using the historical data we've been collecting in App.tsx
-                const pf = calculatePF(node, latencyHistory);
+                // Get this specific endpoint's latency history
+                const nodeHistory = latencyHistory[node.id] || [];
+                const pf = calculatePF(node, nodeHistory);
                 return (
                   <NodeStatusCard 
                     key={node.id} 
@@ -161,20 +210,26 @@ export default function Dashboard({ endpoints, prevMetrics, allLogs, latencyHist
               </CardTitle>
             </CardHeader>
             <ScrollArea className="flex-1 px-4 py-2">
-              <div className="space-y-3">
-                {kernelLogs.map((log: any, i: number) => (
-                  <div key={i} className="group">
-                    <div className="flex items-center gap-2 font-mono text-[9px]">
-                      <span className={log.type === 'error' ? 'text-red-500' : 'text-amber-500'}>
-                        [{log.tag}]
-                      </span>
-                      <span className="text-slate-600">{log.time}</span>
+              {kernelLogs.length > 0 ? (
+                <div className="space-y-3">
+                  {kernelLogs.map((log: any, i: number) => (
+                    <div key={i} className="group">
+                      <div className="flex items-center gap-2 font-mono text-[9px]">
+                        <span className={log.type === 'error' ? 'text-red-500' : 'text-amber-500'}>
+                          [{log.tag}]
+                        </span>
+                        <span className="text-slate-600">{log.time}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-mono mt-1">{log.msg}</p>
+                      {i < kernelLogs.length - 1 && <Separator className="bg-white/5 mt-3" />}
                     </div>
-                    <p className="text-[10px] text-slate-400 font-mono mt-1">{log.msg}</p>
-                    {i < kernelLogs.length - 1 && <Separator className="bg-white/5 mt-3" />}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-600 text-[10px] font-mono">
+                  No critical events logged
+                </div>
+              )}
             </ScrollArea>
           </Card>
         </div>

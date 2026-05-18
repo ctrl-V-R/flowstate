@@ -11,6 +11,11 @@ import {
 
 import emailjs from '@emailjs/browser';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+
+const EMAILJS_SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+const EMAILJS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
 
 export default function SupportPage() {
   const formRef = useRef<HTMLFormElement>(null);
@@ -30,15 +35,20 @@ export default function SupportPage() {
 
     try {
       await emailjs.sendForm(
-        'service_yw5l7nv', 
-        'template_8r196j8', 
+        EMAILJS_SERVICE_ID, 
+        EMAILJS_TEMPLATE_ID, 
         formRef.current, 
-        'PVDjyrk1eIlerriXx'
+        EMAILJS_PUBLIC_KEY
       );
       setSubmitted(true);
+      toast.success("Support ticket sent successfully!", {
+        description: "We'll get back to you as soon as possible."
+      });
     } catch (error) {
       console.error('FAILED...', error);
-      alert("Failed to send ticket. Please try again.");
+      toast.error("Failed to send ticket", {
+        description: "Please try again or contact us via GitHub."
+      });
     } finally {
       setIsSending(false);
     }
@@ -58,7 +68,7 @@ export default function SupportPage() {
             title="Documentation" 
             desc="Explore the FlowState API spec and routing guides."
             icon={<Book className="text-blue-400" />}
-            onClick={() => navigate("/faq/changelog")}
+            onClick={() => navigate("/documentation")}
           />
           <ResourceCard 
             title="Fork or Suggest" 

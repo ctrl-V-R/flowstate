@@ -1,5 +1,5 @@
 import psutil
-
+import os
 import boto3
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
@@ -11,26 +11,37 @@ import string
 from datetime import datetime
 from fastapi import FastAPI, APIRouter, Header, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from typing import Optional
+import logging
 
 from dotenv import load_dotenv
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 
+# Get CORS origins from environment
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # TODO: In production, replace with your frontend URL
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], # Explicitly allow DELETE
+    allow_methods=["GET", "POST", "DELETE", "PUT", "OPTIONS"],
     allow_headers=["*"],
 )
 
 
 # --- [ 1. DYNAMODB CONFIGURATION ] ---
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
-endpoints_table = dynamodb.Table('FlowState_Endpoints')
-auth_table = dynamodb.Table('FlowState_Auth')
+dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_DEFAULT_REGION', 'ap-south-1'))
+endpoints_table = dynamodb.Table(os.getenv('DYNAMODB_ENDPOINTS_TABLE', 'FlowState_Endpoints'))
+auth_table = dynamodb.Table(os.getenv('DYNAMODB_AUTH_TABLE', 'FlowState_Auth'))
 
 # --- [ 2. ACTIVE CACHE (In-Memory) ] ---
 active_cache = {
@@ -40,8 +51,9 @@ active_cache = {
 
 # --- [ 3. UTILS & AUTH ] ---
 def get_new_ttl():
-    # 86400 seconds = 24 hours
-    return int(time.time()) + 86400
+    # Get TTL from environment or default to 24 hours
+    ttl_seconds = int(os.getenv("TOKEN_TTL", "86400"))
+    return int(time.time()) + ttl_seconds
 
 def generate_viewer_code():
     """Generates a 6-char alphanumeric code (e.g., XJ92L1)"""
@@ -80,12 +92,23 @@ async def ping_endpoint(client: httpx.AsyncClient, endpoint: dict):
     settings = endpoint.get("settings", {})
     metadata = endpoint.get("metadata", {})
     
+    if not url:
+        print(f"[PING] ERROR: Endpoint {endpoint.get('name', 'unknown')} has no URL")
+        metadata.update({"latency": 0, "statusCode": 0})
+        return {
+            **endpoint,
+            "status": "offline",
+            "lastSync": datetime.now().strftime("%H:%M:%S"),
+            "metadata": metadata
+        }
+    
     if not endpoint.get("enabledState", True):
         return {**endpoint, "status": "paused"}
 
     start = time.perf_counter()
     try:
-        timeout = settings.get("timeout", 5000) / 1000
+        timeout = float(settings.get("timeout", 5000)) / 1000  # Convert Decimal to float
+        logger.debug(f"Pinging {endpoint.get('name', 'unknown')} at {url} (timeout: {timeout}s)")
         response = await client.get(url, timeout=timeout)
         latency = round((time.perf_counter() - start) * 1000, 2)
         
@@ -94,14 +117,18 @@ async def ping_endpoint(client: httpx.AsyncClient, endpoint: dict):
             "latency": latency,
             "statusCode": response.status_code
         })
+        
+        status = "online" if response.status_code < 400 else "degraded"
+        logger.info(f"{endpoint.get('name', 'unknown')}: {status} (latency: {latency}ms, code: {response.status_code})")
 
         return {
             **endpoint,
-            "status": "online" if response.status_code < 400 else "degraded",
+            "status": status,
             "lastSync": datetime.now().strftime("%H:%M:%S"),
             "metadata": metadata
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error pinging {endpoint.get('name', 'unknown')} at {url}: {type(e).__name__}: {str(e)}")
         metadata.update({"latency": 0, "statusCode": 500})
         return {
             **endpoint,
@@ -112,10 +139,14 @@ async def ping_endpoint(client: httpx.AsyncClient, endpoint: dict):
 
 async def monitor_loop():
     """Syncs Bulk DB -> Pings -> Updates Active Cache."""
+    logger.info("Background monitoring loop started")
+    monitor_interval = int(os.getenv("MONITOR_INTERVAL", "10"))
+    
     while True:
         try:
             res = endpoints_table.scan()
             bulk_endpoints = res.get('Items', [])
+            logger.debug(f"Found {len(bulk_endpoints)} endpoints in DB")
 
             if bulk_endpoints:
                 async with httpx.AsyncClient() as client:
@@ -127,10 +158,13 @@ async def monitor_loop():
                         "endpoints": results,
                         "last_updated": datetime.now().strftime("%H:%M:%S")
                     }
+                    logger.info(f"Updated cache with {len(results)} endpoints at {active_cache['last_updated']}")
+            else:
+                logger.debug("No endpoints to monitor")
         except Exception as e:
-            print(f"Background Sync Error: {e}")
+            logger.error(f"Background Sync Error: {e}")
         
-        await asyncio.sleep(10)
+        await asyncio.sleep(monitor_interval)
 
 ''' Backend Health (FSStats) '''
 table = dynamodb.Table('FlowState_Endpoints')
@@ -375,14 +409,45 @@ async def verify_credentials(data: dict):
 @router.get("/dashboard")
 async def get_dashboard(current_user: dict = Depends(verify_token)):
     """Both Viewers and Admins can see this."""
+    # Determine which user_id to filter by
+    if current_user.get("role") == "viewer":
+        filter_user_id = current_user.get("owner_id")
+    else:
+        filter_user_id = current_user.get("user_id")
+    
+    # Filter cached endpoints by user_id (allow endpoints without user_id for legacy support)
+    filtered_endpoints = [
+        ep for ep in active_cache.get("endpoints", [])
+        if ep.get("user_id") == filter_user_id or ep.get("user_id") is None
+    ]
+    
     return {
-        "cache": active_cache,
+        "cache": {
+            "endpoints": filtered_endpoints,
+            "last_updated": active_cache.get("last_updated")
+        },
         "user_role": current_user["role"]
     }
 
 @router.get("/connections")
 async def get_all_connections(current_user: dict = Depends(verify_token)):
+    # Determine which user_id to filter by
+    if current_user.get("role") == "viewer":
+        # Viewers see their owner's endpoints
+        filter_user_id = current_user.get("owner_id")
+    else:
+        # Admins see their own endpoints
+        filter_user_id = current_user.get("user_id")
+    
+    # Get all endpoints and filter (include legacy endpoints without user_id)
     res = endpoints_table.scan()
+    all_items = res.get('Items', [])
+    
+    # Filter: show user's endpoints OR legacy endpoints (no user_id)
+    filtered_items = [
+        item for item in all_items
+        if item.get('user_id') == filter_user_id or item.get('user_id') is None
+    ]
 
     await manager.broadcast({
         "active_sessions": len(manager.active_connections), # Simple proxy for activity
@@ -390,7 +455,7 @@ async def get_all_connections(current_user: dict = Depends(verify_token)):
         "system_health": "optimal"
     })
 
-    return res.get('Items', [])
+    return filtered_items
 
 @router.put("/connections/{endpoint_id}")
 async def update_connection(
@@ -406,6 +471,11 @@ async def update_connection(
     existing = endpoints_table.get_item(Key={'id': endpoint_id})
     if 'Item' not in existing:
         raise HTTPException(status_code=404, detail="Node not found in registry.")
+    
+    # 3. Verify ownership (allow updating legacy endpoints without user_id)
+    endpoint_user_id = existing['Item'].get('user_id')
+    if endpoint_user_id is not None and endpoint_user_id != current_user.get('user_id'):
+        raise HTTPException(status_code=403, detail="Cannot modify endpoints owned by other users.")
 
     # 3. Merge/Update Logic
     try:
@@ -422,7 +492,8 @@ async def update_connection(
             'headers': data.get('headers', {}),
             'enabledState': data.get('enabledState'),
             'lastSync': datetime.now().strftime("%H:%M:%S"),
-            'status': data.get('status')
+            'status': data.get('status'),
+            'user_id': existing['Item'].get('user_id') or current_user.get('user_id')  # Claim ownership if legacy
         }
 
         endpoints_table.put_item(Item=updated_item)
@@ -456,6 +527,7 @@ async def add_connection(data: dict, current_user: dict = Depends(verify_token))
         "endpointSecret": data.get("endpointSecret", ""),
         "useLLM": data.get("useLLM", False),
         "enabledState": True,
+        "user_id": current_user.get("user_id"),  # Store owner for filtering
         "settings": {
             "timeout": data.get("timeout", 5000),
             "retries": data.get("retries", 3),
@@ -517,6 +589,17 @@ async def ping_single_node(endpoint_id: str, current_user: dict = Depends(verify
     item = response.get('Item')
     if not item:
         raise HTTPException(status_code=404, detail=f"Node {endpoint_id} not found in registry")
+    
+    # 2.5 VERIFY OWNERSHIP (allow pinging legacy endpoints without user_id)
+    # Determine which user_id to check against
+    if current_user.get("role") == "viewer":
+        check_user_id = current_user.get("owner_id")
+    else:
+        check_user_id = current_user.get("user_id")
+    
+    endpoint_user_id = item.get('user_id')
+    if endpoint_user_id is not None and endpoint_user_id != check_user_id:
+        raise HTTPException(status_code=403, detail="Cannot ping endpoints owned by other users.")
 
     # 3. EXTRACT METADATA
     target_url = item.get('url')
@@ -567,16 +650,25 @@ async def trigger_manual_sync(current_user: dict = Depends(verify_token)):
 
     # This manually runs the ping logic once outside the 60s loop
     async with httpx.AsyncClient() as client:
-        res = endpoints_table.scan()
+        # Filter by current user's endpoints only
+        res = endpoints_table.scan(
+            FilterExpression=Attr('user_id').eq(current_user.get("user_id"))
+        )
         bulk_endpoints = res.get('Items', [])
         
         if bulk_endpoints:
             tasks = [ping_endpoint(client, ep) for ep in bulk_endpoints]
             results = await asyncio.gather(*tasks)
             
+            # Update only the current user's endpoints in the cache
             global active_cache
+            # Keep other users' endpoints and update only current user's
+            other_endpoints = [
+                ep for ep in active_cache.get("endpoints", [])
+                if ep.get("user_id") != current_user.get("user_id")
+            ]
             active_cache = {
-                "endpoints": results,
+                "endpoints": other_endpoints + results,
                 "last_updated": datetime.now().strftime("%H:%M:%S")
             }
     
@@ -623,6 +715,14 @@ async def delete_connection(endpoint_id: str, current_user: dict = Depends(verif
         raise HTTPException(
             status_code=404, 
             detail=f"Node {endpoint_id} not found in registry."
+        )
+    
+    # 3. VERIFY OWNERSHIP (allow deleting legacy endpoints without user_id)
+    endpoint_user_id = check_exists['Item'].get('user_id')
+    if endpoint_user_id is not None and endpoint_user_id != current_user.get('user_id'):
+        raise HTTPException(
+            status_code=403, 
+            detail="Cannot delete endpoints owned by other users."
         )
 
     # 3. EXECUTE PURGE

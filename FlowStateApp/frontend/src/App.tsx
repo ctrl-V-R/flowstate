@@ -16,12 +16,14 @@ import type { Endpoint, LogEntry } from "./types"
 import { getUserProfile, getEnrichedDashboard } from './connectionService';
 import NotificationsPage from "./components/NotificationsPage"
 import Dashboard from "./components/Dashboard"
-import { calculateAvailability, calculateAvgLatency, getNodeTelemetry } from "./dashboardUtils"
+import { calculateAvailability, calculateAvgLatency } from "./dashboardUtils"
 import UserSettings from "./components/UserSettings"
 import { AuthGuard } from "./AuthGuard"
 import PNF from "./PNF"
+import { Docs } from "./components/Documentation"
+import { FAQ } from "./components/FAQ"
 
-const BASE_URL = "http://localhost:8000/api/v1"; // TODO : Switch with real base in PROD
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
 export function AppContent() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("fs_access_token"));
@@ -32,7 +34,7 @@ export function AppContent() {
   const [allLogs, setAllLogs] = useState<LogEntry[]>([]); 
   const [hasUnreadAlerts, setHasUnreadAlerts] = useState(false);
   const [prevMetrics, setPrevMetrics] = useState({ availability: 0, latency: 0 });
-  const [latencyHistory, setLatencyHistory] = useState<number[]>(new Array(20).fill(0));
+  const [latencyHistory, setLatencyHistory] = useState<Record<string, number[]>>({});
   
   const isAuthenticated = !!token
 
@@ -66,58 +68,76 @@ export function AppContent() {
   };
 
   useEffect(() => {
-    const checkSystemPressure = async () => {
-      for (const node of endpoints) {
-        const telemetry = await getNodeTelemetry(node.id);
+    if (!token) return;
+    
+    // Initial fetch
+    const fetchData = async () => {
+      try {
+        const data = await getEnrichedDashboard(addGlobalLog);
+        if (!data) return;
         
-        if (telemetry && telemetry.cpu > 85) {
-          addGlobalLog({
-            msg: `CRITICAL_LOAD: High CPU pressure on ${node.name} (${telemetry.cpu.toFixed(1)}%)`,
-            type: 'warn',
-            time: new Date().toLocaleTimeString()
-          });
-        }
+        setEndpoints(data);
+        
+        // Initialize latency history for each endpoint
+        const historyMap: Record<string, number[]> = {};
+        data.forEach((node: Endpoint) => {
+          historyMap[node.id] = latencyHistory[node.id] || new Array(20).fill(node.metadata.latency || 0);
+        });
+        setLatencyHistory(historyMap);
+        
+      } catch (err) {
+        console.error("Failed to fetch dashboard data", err);
       }
     };
-
-    // Run the check every 10 seconds
-    const interval = setInterval(checkSystemPressure, 10000);
-    return () => clearInterval(interval);
-  }, [endpoints]); // Re-run if endpoints list changes
-
-  useEffect(() => {
-    if (!token) {return;}
+    
+    fetchData(); // Run immediately on mount
+    
     const interval = setInterval(async () => {
-      // Use the enriched dashboard data which contains the live monitoring results
-      const data = await getEnrichedDashboard(addGlobalLog);
-      if (!data) return;
+      try {
+        const data = await getEnrichedDashboard(addGlobalLog);
+        if (!data) return;
 
-      const avgLat = calculateAvgLatency(data);
-      setLatencyHistory(prev => {
-        const updated = [...prev, avgLat];
-        return updated.slice(-20); 
-      });
-      data.forEach((node: Endpoint) => {
-        const oldNode = endpoints.find((e: Endpoint) => e.id === node.id);
-        if (oldNode && oldNode.status !== node.status) {
-          addGlobalLog({
-            msg: `${node.name} status changed from ${oldNode.status} to ${node.status}`,
-            type: node.status === 'online' ? 'success' : 'error',
-            time: new Date().toLocaleTimeString()
+        // Track latency history per endpoint
+        setLatencyHistory(prev => {
+          const updated = { ...prev };
+          data.forEach((node: Endpoint) => {
+            const latency = node.metadata.latency || 0;
+            const existing = prev[node.id] || [];
+            updated[node.id] = [...existing, latency].slice(-20); // Keep last 20 values
           });
-        }
-      });
+          return updated;
+        });
+
+        // Detect status changes
+        data.forEach((node: Endpoint) => {
+          const oldNode = endpoints.find((e: Endpoint) => e.id === node.id);
+          if (oldNode && oldNode.status !== node.status) {
+            addGlobalLog({
+              msg: `${node.name} status changed from ${oldNode.status} to ${node.status}`,
+              type: node.status === 'online' ? 'success' : 'error',
+              time: new Date().toLocaleTimeString()
+            });
+          }
+        });
  
-      setEndpoints(data);
-      const currentAvail = calculateAvailability(data);
-      const currentLat = calculateAvgLatency(data);
+        setEndpoints(data);
+        
+        // Update metrics for trend calculation
+        const currentAvail = calculateAvailability(data);
+        const currentLat = calculateAvgLatency(data);
+        setPrevMetrics({ availability: currentAvail, latency: currentLat });
 
-      setPrevMetrics({ availability: currentAvail, latency: currentLat });
-
-    }, 10000); // Check every 10 seconds
+      } catch (err) {
+        addGlobalLog({
+          msg: "Failed to sync with monitoring engine",
+          type: "error",
+          time: new Date().toLocaleTimeString()
+        });
+      }
+    }, 10000); // Poll every 10 seconds
 
     return () => clearInterval(interval);
-  }, [endpoints]);
+  }, [token]); // Only depend on token, not endpoints
 
   // Logout
   const handleLogout = () => {
@@ -126,18 +146,6 @@ export function AppContent() {
       setToken(null) 
       navigate("/", { replace: true })
     }
-  
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const data = await getEnrichedDashboard();
-        setEndpoints(data);
-      } catch (err) {
-        console.error("Initial load failed", err);
-      }
-    };
-    loadData();
-  }, []);
   
   useEffect(() => {
     // Check for token on mount
@@ -207,7 +215,8 @@ export function AppContent() {
             <Route path="/notifications" element={<NotificationsPage allLogs={allLogs} setHasUnreadAlerts={setHasUnreadAlerts}/>} />
             <Route path="/syshealth" element={<FSStats />} />
             <Route path="/prompts" element={<div className="p-8">Prompt templates coming soon...</div>} />
-            <Route path="/faq" element={<div className="p-8">FAQ coming soon...</div>} />
+            <Route path="/faq" element={<FAQ />} />
+            <Route path="/documentation" element={<Docs />} />
             <Route path="/support" element={<Support />} />
 
             {/* PRIVATE ROUTES {ADMIN ONLY} */}

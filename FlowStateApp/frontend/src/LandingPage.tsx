@@ -10,6 +10,7 @@ import { SignupDialog } from "./components/ui/SignupDialog"
 import { toast } from "sonner"
 import type { LandingPageProps } from "./types"
 
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
 export default function LandingPage({ onAuthSuccess }: LandingPageProps) {
   const [value, setValue] = useState("")
@@ -24,7 +25,7 @@ export default function LandingPage({ onAuthSuccess }: LandingPageProps) {
       description: "Your Admin Passkey has been generated and activated.",
       duration: 5000,
     })
-    console.log(`%c [SECURITY] Passkey Generated for ${userId} `, "background: #222; color: #bada55");
+    // Log removed for production security
     handleAuth(token) // This logs them in immediately after signup
   }
 
@@ -36,7 +37,7 @@ export default function LandingPage({ onAuthSuccess }: LandingPageProps) {
     setError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/v1/auth/verify", {
+      const response = await fetch(`${BASE_URL}/auth/verify`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
