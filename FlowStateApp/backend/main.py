@@ -23,9 +23,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # TODO: In production, replace with your frontend URL
+    allow_origins=["https://ctrlvrdev.site/flowstate/"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"], # Explicitly allow DELETE
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

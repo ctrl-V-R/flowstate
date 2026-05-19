@@ -23,7 +23,8 @@ import PNF from "./PNF"
 import { Docs } from "./components/Documentation"
 import { FAQ } from "./components/FAQ"
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://ctrlvrdev.site/flowstate';
+export const API_URL = `${BASE_URL}/api/v1`;
 
 export function AppContent() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("fs_access_token"));
