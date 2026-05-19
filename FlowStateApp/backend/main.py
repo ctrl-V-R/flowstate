@@ -23,9 +23,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://ctrlvrdev.site/flowstate/"],
+    allow_origins=[
+        "https://ctrlvrdev.site",
+        "https://ctrlvrdev.site/flowstate",
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:8000"   # Local backend
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS", "PUT"],
     allow_headers=["*"],
 )
 
