@@ -19,22 +19,86 @@ export const FSStats = () => {
     memory_usage: 4.2
   });
   const [logs, setLogs] = useState<string[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting');
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   useEffect(() => {
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/stats';
-    const socket = new WebSocket(wsUrl);
+    let socket: WebSocket | null = null;
+    let reconnectTimeout: number;
 
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setMetrics(prev => ({ ...prev, ...data }));
+    const connectWebSocket = () => {
+      const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/stats';
       
-      // Push new system log
-      const newLog = `[${new Date().toLocaleTimeString()}] INBOUND_PACKET::SRC_RESOLVED::ID_${Math.random().toString(16).slice(2, 8).toUpperCase()}`;
-      setLogs(prev => [...prev.slice(-15), newLog]);
+      console.log('[FSStats] Connecting to WebSocket:', wsUrl);
+      setConnectionStatus('connecting');
+      
+      try {
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          console.log('[FSStats] WebSocket connected successfully');
+          setConnectionStatus('connected');
+          setReconnectAttempt(0);
+          
+          const connectLog = `[${new Date().toLocaleTimeString()}] SYSTEM_CONNECTED::WS_HANDSHAKE_COMPLETE`;
+          setLogs(prev => [...prev.slice(-15), connectLog]);
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('[FSStats] Received metrics:', data);
+            setMetrics(prev => ({ ...prev, ...data }));
+            
+            // Push new system log
+            const newLog = `[${new Date().toLocaleTimeString()}] INBOUND_PACKET::SRC_RESOLVED::ID_${Math.random().toString(16).slice(2, 8).toUpperCase()}`;
+            setLogs(prev => [...prev.slice(-15), newLog]);
+          } catch (error) {
+            console.error('[FSStats] Error parsing message:', error);
+          }
+        };
+
+        socket.onerror = (error) => {
+          console.error('[FSStats] WebSocket error:', error);
+          setConnectionStatus('error');
+          
+          const errorLog = `[${new Date().toLocaleTimeString()}] CONNECTION_ERROR::RETRY_PENDING`;
+          setLogs(prev => [...prev.slice(-15), errorLog]);
+        };
+
+        socket.onclose = (event) => {
+          console.log('[FSStats] WebSocket closed:', event.code, event.reason);
+          setConnectionStatus('disconnected');
+          
+          const closeLog = `[${new Date().toLocaleTimeString()}] DISCONNECTED::CODE_${event.code}::ATTEMPTING_RECONNECT`;
+          setLogs(prev => [...prev.slice(-15), closeLog]);
+          
+          // Reconnect with exponential backoff (max 30 seconds)
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
+          console.log(`[FSStats] Reconnecting in ${delay}ms...`);
+          
+          reconnectTimeout = setTimeout(() => {
+            setReconnectAttempt(prev => prev + 1);
+            connectWebSocket();
+          }, delay);
+        };
+      } catch (error) {
+        console.error('[FSStats] Failed to create WebSocket:', error);
+        setConnectionStatus('error');
+      }
     };
 
-    return () => socket.close();
-  }, []);
+    connectWebSocket();
+
+    return () => {
+      if (socket) {
+        socket.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+    };
+  }, [reconnectAttempt]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-zinc-400 font-mono p-4 grid grid-cols-12 grid-rows-6 gap-4 border-[12px] border-zinc-950">
@@ -53,8 +117,21 @@ export const FSStats = () => {
         <div className="flex gap-8 items-center h-full border-l border-zinc-800 pl-8">
           <HeaderStat label="Uptime" value="142:12:04:09" />
           <HeaderStat label="Link_Status" value="Encrypted" icon={<Lock className="size-3" />} />
-          <div className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded">
-             <span className="text-emerald-500 text-xs animate-pulse">● SYSTEM_LIVE</span>
+          <div className={`px-4 py-2 border rounded ${
+            connectionStatus === 'connected' ? 'bg-emerald-500/10 border-emerald-500/20' :
+            connectionStatus === 'connecting' ? 'bg-yellow-500/10 border-yellow-500/20' :
+            'bg-red-500/10 border-red-500/20'
+          }`}>
+             <span className={`text-xs ${
+               connectionStatus === 'connected' ? 'text-emerald-500 animate-pulse' :
+               connectionStatus === 'connecting' ? 'text-yellow-500' :
+               'text-red-500'
+             }`}>
+               ● {connectionStatus === 'connected' ? 'SYSTEM_LIVE' : 
+                  connectionStatus === 'connecting' ? 'CONNECTING...' :
+                  connectionStatus === 'error' ? 'CONNECTION_ERROR' :
+                  'RECONNECTING...'}
+             </span>
           </div>
         </div>
       </header>

@@ -150,65 +150,37 @@ def get_total_pings_from_db():
         print(f"Error fetching stats: {e.response['Error']['Message']}")
         return 0
     
+async def get_system_metrics():
+    """
+    Gathers real-time system stats to seed the frontend 
+    immediately upon WebSocket connection.
+    """
+    # 1. Get real CPU and RAM usage
+    cpu_usage = psutil.cpu_percent(interval=None)
+    memory = psutil.virtual_memory()
+    
+    # 2. Get your DynamoDB count
+    total_pings = get_total_pings_from_db() 
+
+    return {
+        "active_sessions": len(manager.active_connections) if 'manager' in globals() else 0,
+        "total_pings_24h": total_pings,
+        "system_health": "optimal" if cpu_usage < 80 else "strained",
+        "cpu_load": cpu_usage,
+        "memory_usage": memory.percent,
+        "timestamp": time.time()
+    }
+
 async def aggregate_system_stats():
+    """Broadcasts system stats every 30 seconds to all connected WebSocket clients"""
     while True:
-        # Now this won't throw a NameError
-        pings = get_total_pings_from_db()
-        
-        stats = {
-            "active_sessions": len(manager.active_connections),
-            "total_pings_24h": pings,
-            "system_health": "optimal" if pings > 0 else "degraded"
-        }
-        
-        await manager.broadcast(stats)
         await asyncio.sleep(30)
-
-async def get_system_metrics():
-    """
-    Gathers real-time system stats to seed the frontend 
-    immediately upon WebSocket connection.
-    """
-    # 1. Get real CPU and RAM usage
-    cpu_usage = psutil.cpu_percent(interval=None)
-    memory = psutil.virtual_memory()
-    
-    # 2. Get your DynamoDB count (using the function we wrote earlier)
-    # If the function is sync, we just call it. 
-    # If it's async, use 'await'.
-    total_pings = get_total_pings_from_db() 
-
-    return {
-        "active_sessions": len(manager.active_connections) if 'manager' in globals() else 0,
-        "total_pings_24h": total_pings,
-        "system_health": "optimal" if cpu_usage < 80 else "strained",
-        "cpu_load": cpu_usage,
-        "memory_usage": memory.percent,
-        "timestamp": time.time()
-    }
-    
-async def get_system_metrics():
-    """
-    Gathers real-time system stats to seed the frontend 
-    immediately upon WebSocket connection.
-    """
-    # 1. Get real CPU and RAM usage
-    cpu_usage = psutil.cpu_percent(interval=None)
-    memory = psutil.virtual_memory()
-    
-    # 2. Get your DynamoDB count (using the function we wrote earlier)
-    # If the function is sync, we just call it. 
-    # If it's async, use 'await'.
-    total_pings = get_total_pings_from_db() 
-
-    return {
-        "active_sessions": len(manager.active_connections) if 'manager' in globals() else 0,
-        "total_pings_24h": total_pings,
-        "system_health": "optimal" if cpu_usage < 80 else "strained",
-        "cpu_load": cpu_usage,
-        "memory_usage": memory.percent,
-        "timestamp": time.time()
-    }
+        try:
+            stats = await get_system_metrics()
+            await manager.broadcast(stats)
+            print(f"[STATS] Broadcasted metrics to {len(manager.active_connections)} clients")
+        except Exception as e:
+            print(f"[STATS] Error broadcasting metrics: {e}")
     
 @app.get("/api/v1/telemetry/{node_id}")
 async def get_single_node_telemetry(node_id: str):
@@ -220,23 +192,23 @@ async def get_single_node_telemetry(node_id: str):
         "latency": 5
     }
 
-async def connect(self, websocket: WebSocket):
-    await websocket.accept()
-    self.active_connections.append(websocket)
-    
-    # SEND DATA IMMEDIATELY ON CONNECTION
-    initial_stats = await get_system_metrics() 
-    await websocket.send_json(initial_stats)
-
 class ConnectionManager:
     def __init__(self):
         # Stores active websocket connections
         self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        # This is the missing attribute!
+        # Accept the connection and add to active list
         await websocket.accept()
         self.active_connections.append(websocket)
+        
+        # Send initial metrics immediately on connection
+        try:
+            initial_stats = await get_system_metrics()
+            await websocket.send_json(initial_stats)
+            print(f"[STATS] Sent initial metrics to new client. Total clients: {len(self.active_connections)}")
+        except Exception as e:
+            print(f"[STATS] Error sending initial metrics: {e}")
 
     def disconnect(self, websocket: WebSocket):
         # This removes the socket when a user closes the tab
