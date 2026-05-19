@@ -185,6 +185,14 @@ export default function LandingPage({ onAuthSuccess }: LandingPageProps) {
             </div>
           )}
         </div>
+        {/* The Demo Hint Component */}
+      <div className="demo-hint-box rounded-lg p-4 text-xs text-zinc-400">
+        <p>
+          <span>Just visiting? Use the viewer code{" "} </span>
+          <span><strong className="code-highlight text-green-200">AAAAAA</strong> to explore the dashboard instantly.</span>
+          
+        </p>
+      </div>
 
         {/* FOOTER */}
         <div className="pt-6 border-t border-zinc-800/50">
