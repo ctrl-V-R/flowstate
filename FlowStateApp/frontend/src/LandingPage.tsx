@@ -9,8 +9,7 @@ import { TerminalInput } from "./components/ui/TerminalInput"
 import { SignupDialog } from "./components/ui/SignupDialog"
 import { toast } from "sonner"
 import type { LandingPageProps } from "./types"
-
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+import { API_URL } from "./App"
 
 export default function LandingPage({ onAuthSuccess }: LandingPageProps) {
   const [value, setValue] = useState("")
@@ -37,7 +36,7 @@ export default function LandingPage({ onAuthSuccess }: LandingPageProps) {
     setError(null);
 
     try {
-      const response = await fetch(`${BASE_URL}/auth/verify`, {
+      const response = await fetch(`${API_URL}/auth/verify`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

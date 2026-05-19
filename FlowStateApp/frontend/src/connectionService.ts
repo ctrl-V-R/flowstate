@@ -1,4 +1,5 @@
 import type { Endpoint, LogEntry } from '@/types';
+import { API_URL } from './App';
 
 type LogCallback = (entry: Omit<LogEntry, 'id' | 'timestamp'>) => void;
 
@@ -11,11 +12,9 @@ const getHeaders = () => {
   };
 };
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
-
 export const getEnrichedDashboard = async (onLog?: LogCallback) => {
   try {
-    const response = await fetch(`${BASE_URL}/dashboard`, {
+    const response = await fetch(`${API_URL}/dashboard`, {
       headers: getHeaders()
     });
 
@@ -50,7 +49,7 @@ export const getEnrichedDashboard = async (onLog?: LogCallback) => {
 export const fetchEndpoints = async (onLog?: LogCallback): Promise<Endpoint[]> => {
   onLog?.({ msg: "Connections Pinged!", type: "info", time: new Date().toLocaleTimeString() });
   
-  const response = await fetch(`${BASE_URL}/connections`, { headers: getHeaders() });
+  const response = await fetch(`${API_URL}/connections`, { headers: getHeaders() });
   
   if (!response.ok) {
     const errorData = await response.json();
@@ -64,7 +63,7 @@ export const fetchEndpoints = async (onLog?: LogCallback): Promise<Endpoint[]> =
 export const addEndpoint = async (endpointData: Partial<Endpoint>, onLog?: LogCallback): Promise<boolean> => {
   onLog?.({ msg: "POST /api/v1/connections (Admin Write)", type: "info", time: new Date().toLocaleTimeString() });
 
-  const response = await fetch(`${BASE_URL}/connections`, {
+  const response = await fetch(`${API_URL}/connections`, {
     method: "POST",
     headers: getHeaders(),
     body: JSON.stringify(endpointData)
@@ -81,7 +80,7 @@ export const addEndpoint = async (endpointData: Partial<Endpoint>, onLog?: LogCa
 export const deleteEndpoint = async (id: string, name: string, onLog?: LogCallback): Promise<boolean> => {
   onLog?.({ msg: `DELETE /api/v1/connections/${name}`, type: "warn", time: new Date().toLocaleTimeString() });
   
-  const response = await fetch(`${BASE_URL}/connections/${id}`, {
+  const response = await fetch(`${API_URL}/connections/${id}`, {
     method: "DELETE",
     headers: getHeaders()
   });
@@ -103,7 +102,7 @@ export const pingAllEndpoints = async (onLog?: LogCallback): Promise<boolean> =>
   });
   
   try {
-    const response = await fetch(`${BASE_URL}/connections/ping-all`, { 
+    const response = await fetch(`${API_URL}/connections/ping-all`, { 
       method: "POST", 
       headers: getHeaders() 
     });
@@ -137,7 +136,7 @@ export const pingAllEndpoints = async (onLog?: LogCallback): Promise<boolean> =>
 };
 
 export const getUserProfile = async () => {
-  const response = await fetch(`${BASE_URL}/user/profile`, {
+  const response = await fetch(`${API_URL}/user/profile`, {
     headers: getHeaders()
   });
 

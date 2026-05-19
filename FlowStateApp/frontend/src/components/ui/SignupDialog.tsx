@@ -11,8 +11,7 @@ import {
   XIcon 
 } from "lucide-react"
 import type { SignupDialogProps } from "@/types"
-
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+import { API_URL } from "@/App"
 
 export function SignupDialog({ isOpen, onClose, onSignupComplete }: SignupDialogProps) {
   const [loading, setLoading] = useState(false)
@@ -34,7 +33,7 @@ export function SignupDialog({ isOpen, onClose, onSignupComplete }: SignupDialog
     const shareableSessionID = Math.random().toString(36).substring(2, 8).toUpperCase() 
     
     try {
-      const response = await fetch(`${BASE_URL}/auth/register`, {
+      const response = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 

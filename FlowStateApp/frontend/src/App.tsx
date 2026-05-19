@@ -158,7 +158,7 @@ export function AppContent() {
       }
       setToken(savedToken);
       try {
-        const response = await fetch(`${BASE_URL}/dashboard`, {
+        const response = await fetch(`${API_URL}/dashboard`, {
           headers: {
             "Authorization": `Bearer ${savedToken}`,
             "Content-Type": "application/json"
