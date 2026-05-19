@@ -3,3 +3,5 @@ uvicorn
 openrouter
 boto3
 websockets
+psutil
+python-dotenv
