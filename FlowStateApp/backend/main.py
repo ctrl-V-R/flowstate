@@ -1,3 +1,5 @@
+import os
+
 import psutil
 
 import boto3
@@ -11,6 +13,7 @@ import string
 from datetime import datetime
 from fastapi import FastAPI, APIRouter, Header, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from typing import Optional
+import uvicorn
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -719,3 +722,7 @@ app.include_router(router)
 async def startup_event():
     asyncio.create_task(monitor_loop())
     asyncio.create_task(aggregate_system_stats())
+    
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
