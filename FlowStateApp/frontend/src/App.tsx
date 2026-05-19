@@ -212,7 +212,7 @@ export function AppContent() {
           <Routes>
             {/* PUBLIC ROUTES */}
             <Route path="/" element={<Dashboard endpoints={endpoints} prevMetrics={prevMetrics} allLogs={allLogs} latencyHistory={latencyHistory} />} />
-            <Route path="/performance" element={<div className="p-8">CPU metrics coming soon...</div>} />
+            <Route path="/performance" element={<FSStats />} />
             <Route path="/notifications" element={<NotificationsPage allLogs={allLogs} setHasUnreadAlerts={setHasUnreadAlerts}/>} />
             <Route path="/syshealth" element={<FSStats />} />
             <Route path="/prompts" element={<div className="p-8">Prompt templates coming soon...</div>} />
